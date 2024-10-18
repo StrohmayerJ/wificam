@@ -71,7 +71,7 @@ def train(opt):
         os.system("cp *.py runs/"+opt.name+"/")
 
         print("Training...")
-        wandb_logger = WandbLogger(log_model=False, project="ICIP2024_WiFiCam_eval", entity="julstr", config=opt, name=opt.name) if opt.log else None
+        wandb_logger = WandbLogger(log_model=False, project="EnterYourWandbProjectName", entity="EnterYourWandbEntity", config=opt, name=opt.name) if opt.log else None
         callbacks = [ModelCheckpoint(monitor='val_loss', mode='min', save_last=False, filename='bestLoss', dirpath='runs/'+opt.name),
                     ModelCheckpoint(monitor='val_kl', mode='min', save_last=False,filename='bestKl', dirpath='runs/'+opt.name),
                     ModelCheckpoint(monitor='val_ll', mode='max', save_last=False,filename='bestLl', dirpath='runs/'+opt.name),
