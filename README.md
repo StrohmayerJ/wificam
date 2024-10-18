@@ -39,7 +39,7 @@ Get the wificam dataset from https://zenodo.org/uploads/11554280 and put it in t
 
 ### Training & Testing
 
-**Training** | Command for training a *MoPoE-VAE* model with the aggegration option *concatenation* and *temporal encoding* enabled for 50 epochs:
+**Training** | Command for training a *MoPoE-VAE* model with the aggegration method *concatenation* and *temporal encoding* enabled for 50 epochs:
 
 ```
 python3 train.py --name mopoevae_ct --data data/wificam/ --epochs 50 --am concat --tenc --device 0
