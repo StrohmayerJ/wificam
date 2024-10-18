@@ -1,5 +1,16 @@
 # Through-Wall Imaging based on WiFi Channel State Information
 
+### Proposed Architecture
+<img src="resources/pipeline.svg" alt="Pipeline Diagram" width="1000" height="300">
+
+
+
+### Through-Wall Image Reconstruction Demo
+<video src="resources/demo.mp4" loop muted autoplay controls width="640" height="240">
+    Your browser does not support the video tag.
+</video>
+
+### Paper
 Strohmayer J., Sterzinger R., Stippel C. and Kampel M., “Through-Wall Imaging Based On WiFi Channel State Information,” 2024 IEEE International Conference on Image Processing (ICIP), Abu Dhabi, United Arab Emirates, 2024, pp. 4000-4006, doi: https://doi.org/10.1109/ICIP51287.2024.10647775.
 
 BibTeX:
@@ -14,8 +25,6 @@ BibTeX:
   pages={4000-4006},
   doi={10.1109/ICIP51287.2024.10647775}}
 ```
-
-
 
 ### Prerequisites
 ```
