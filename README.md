@@ -1,7 +1,9 @@
 # Through-Wall Imaging based on WiFi Channel State Information
 
 ### Proposed Architecture
+
 <img src="resources/pipeline.svg" alt="Pipeline Diagram" width="1000" height="300">
+Based on the Mixture-of-Products-of-Experts Variational Autoencoder (MoPoE-VAE) from https://github.com/thomassutter/MoPoE
 
 ### Through-Wall Imaging Example
 Ground truth image (left) and image reconstructed from WiFi CSI captured in a through-wall scenario (right).
