@@ -32,7 +32,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
-If you want to use wandb for logging, update your wandb credentials in *train.py* and pass the `--log` argument.
+Logging is disabled by default. You can enable wandb logging by updating your credentials in *train.py* and passing the `--log` argument.
 
 ### Dataset
 Get the wificam dataset from https://zenodo.org/uploads/11554280 and put it in the */data* directory.
