@@ -23,9 +23,6 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 torch.set_num_threads(16)
 
-IMGSIZE = 640 # image size (320 or 640)
-ZDIM = 128 # latent dimension
-
 def train(opt):
 
     # enable deterministic behavior if flag is set
@@ -53,9 +50,9 @@ def train(opt):
 
     # create dataloaders
     print("Creating dataloaders...")
-    j3_train = data.WificamDataset(opt.data+"j3/"+str(IMGSIZE)+"/csi.csv",augPath='', windowSize=opt.ws, frequence_L=frequence_L,random_sample=opt.random,temporal_encoding=opt.tenc)
-    j3_val = data.WificamDataset(opt.data+"j3/"+str(IMGSIZE)+"/csi.csv",augPath='', windowSize=opt.ws, frequence_L=frequence_L,random_sample=False, temporal_encoding=opt.tenc)
-    j3_test = data.WificamDataset(opt.data+"j3/"+str(IMGSIZE)+"/csi.csv",augPath='', windowSize=opt.ws, frequence_L=frequence_L,random_sample=False, temporal_encoding=opt.tenc)
+    j3_train = data.WificamDataset(opt.data+"j3/"+str(opt.imgsize)+"/csi.csv",augPath='', windowSize=opt.ws, frequence_L=frequence_L,random_sample=opt.random,temporal_encoding=opt.tenc)
+    j3_val = data.WificamDataset(opt.data+"j3/"+str(opt.imgsize)+"/csi.csv",augPath='', windowSize=opt.ws, frequence_L=frequence_L,random_sample=False, temporal_encoding=opt.tenc)
+    j3_test = data.WificamDataset(opt.data+"j3/"+str(opt.imgsize)+"/csi.csv",augPath='', windowSize=opt.ws, frequence_L=frequence_L,random_sample=False, temporal_encoding=opt.tenc)
     datasetTrainJ3, _, _ = train_val_test_dataset(j3_train)
     _, datasetValJ3, _ = train_val_test_dataset(j3_val)
     _,_, datasetTestJ3 = train_val_test_dataset(j3_test)
@@ -63,7 +60,7 @@ def train(opt):
     if not opt.test:
         dataloader_train = DataLoader(ConcatDataset([datasetTrainJ3]), batch_size=opt.bs, shuffle=True, num_workers=opt.workers, drop_last=True)
         dataloader_val = DataLoader(ConcatDataset([datasetValJ3]), batch_size=opt.bs*8, shuffle=False, num_workers=opt.workers, drop_last=True)
-        model = MoPoEVAE(weight_ll=True, lr=opt.lr,sequence_length=opt.ws, z_dim=ZDIM, frequence_L= frequence_L,aggregate_method=opt.am, use_attention=opt.attention,imgMean=j3_train.imgMean,imgStd=j3_train.imgStd,log=opt.log)
+        model = MoPoEVAE(weight_ll=True, lr=opt.lr,sequence_length=opt.ws, z_dim=opt.zdim, frequence_L= frequence_L,aggregate_method=opt.am, use_attention=opt.attention,imgMean=j3_train.imgMean,imgStd=j3_train.imgStd,log=opt.log)
 
         # copy python files to run folder
         if not os.path.exists("runs/"+opt.name):
@@ -189,7 +186,9 @@ def train(opt):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--lr', type=float, default=1e-3,help='optimizer learning rate')
-    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--epochs', type=int, default=100,help='number of epochs')
+    parser.add_argument('--imgsize', type=int, default=640,help='image size (320 or 640)')
+    parser.add_argument('--zdim', type=int, default=128,help='latent dimension')
     parser.add_argument('--bs', type=int, default=32,help='total batch size for all GPUs')
     parser.add_argument('--ws', type=int, default=151,help='spectrogram window size (number of WiFi packets)')
     parser.add_argument('--workers', type=int, default=8,help='maximum number of dataloader workers')
