@@ -80,7 +80,7 @@ def train(opt):
     else:
         print("Reconstructing...")
         dataloader_test = DataLoader(datasetTestJ3, batch_size=opt.bs*8,shuffle=False, num_workers=opt.workers, drop_last=True)
-        model = MoPoEVAE.load_from_checkpoint(f'runs/{opt.name}/bestLoss.ckpt', weight_ll=True, lr=opt.lr, sequence_length=opt.ws, z_dim=ZDIM,frequence_L= frequence_L,aggregate_method=opt.am, use_attention=opt.attention,map_location=device,imgMean=j3_train.imgMean,imgStd=j3_train.imgStd,log=opt.log)
+        model = MoPoEVAE.load_from_checkpoint(f'runs/{opt.name}/bestLoss.ckpt', weight_ll=True, lr=opt.lr, sequence_length=opt.ws, z_dim=opt.zdim,frequence_L= frequence_L,aggregate_method=opt.am, use_attention=opt.attention,map_location=device,imgMean=j3_train.imgMean,imgStd=j3_train.imgStd,log=opt.log)
         model.to(device)
         model.eval()
 
