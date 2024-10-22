@@ -156,7 +156,7 @@ class MoPoEVAE(L.LightningModule):
             logvar.append(logvar_)
 
         if len(subset) == 2:
-            mu_ = self.prior.mean
+            mu_ = self.prior.loc
             mu_ = mu_.expand(mu[0].shape).to(mu[0].device)
             logvar_ = torch.log(self.prior.variance).to(mu[0].device)
             logvar_ = logvar_.expand(logvar[0].shape)
@@ -329,7 +329,7 @@ class MoPoEVAE(L.LightningModule):
         reconstruction_from_signal = self.decode(self.encode_subset(batch, [0]))[1][0][1]
         reconstruction_from_image = self.decode(self.encode_subset(batch, [1]))[1][0][1]
         cat = torch.cat((batch[1][1], reconstruction_from_image,reconstruction_from_signal), dim=-1)
-        
+
         if self.logImage:
             self.logger.log_image(f'{name}', [wandb.Image(cat)], self.current_epoch)
   
