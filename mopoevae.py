@@ -1,10 +1,8 @@
 import numpy as np
 import wandb
 import math
-from torch.distributions.utils import broadcast_all
 import torch
 import torch.nn as nn
-from os.path import join
 from torch.distributions import Normal as _Normal
 from itertools import combinations
 from scipy.stats import norm
@@ -15,198 +13,6 @@ EPS = 1e-8
 
 # set numpy seed
 np.random.seed(0)
-
-def compute_log_alpha(mu, logvar):
-    return (logvar - 2 * torch.log(torch.abs(mu) + 1e-8)).clamp(min=-8, max=8)
-
-class MultiHeadAttention(nn.Module):
-    def __init__(self, hidden_dim, num_heads):
-        super(MultiHeadAttention, self).__init__()
-        assert hidden_dim % num_heads == 0, "hidden_dim must be divisible by num_heads"
-
-        self.hidden_dim = hidden_dim
-        self.num_heads = num_heads
-        self.head_dim = hidden_dim // num_heads
-
-        self.query = nn.Linear(hidden_dim, hidden_dim)
-        self.key = nn.Linear(hidden_dim, hidden_dim)
-        self.value = nn.Linear(hidden_dim, hidden_dim)
-
-        self.fc_out = nn.Linear(hidden_dim, hidden_dim)
-
-    def forward(self, value, key, query):
-        N = query.shape[0]
-        value_len, key_len, query_len = value.shape[1], key.shape[1], query.shape[1]
-
-        value = self.value(value).view(N, value_len, self.num_heads, self.head_dim)
-        key = self.key(key).view(N, key_len, self.num_heads, self.head_dim)
-        query = self.query(query).view(N, query_len, self.num_heads, self.head_dim)
-
-        energy = torch.einsum("nqhd,nkhd->nhqk", [query, key]) / math.sqrt(self.head_dim)
-
-        attention = torch.softmax(energy, dim=3)
-
-        out = torch.einsum("nhql,nlhd->nqhd", [attention, value]).reshape(N, query_len, self.hidden_dim)
-        out = self.fc_out(out)
-
-        return out
-
-class MixtureOfExperts(nn.Module):
-    """Return parameters for mixture of independent experts.
-    Implementation from: https://github.com/thomassutter/MoPoE
-
-    Args:
-    mus (torch.Tensor): Mean of experts distribution. M x D for M experts
-    logvars (torch.Tensor): Log of variance of experts distribution. M x D for M experts
-    """
-
-    def forward(self, mus, logvars):
-
-        num_components = mus.shape[0]
-        num_samples = mus.shape[1]
-        weights = (1/num_components) * \
-            torch.ones(num_components).to(mus[0].device)
-        idx_start = []
-        idx_end = []
-        for k in range(0, num_components):
-            if k == 0:
-                i_start = 0
-            else:
-                i_start = int(idx_end[k-1])
-            if k == num_components-1:
-                i_end = num_samples
-            else:
-                i_end = i_start + int(torch.floor(num_samples*weights[k]))
-            idx_start.append(i_start)
-            idx_end.append(i_end)
-        idx_end[-1] = num_samples
-
-        mu_sel = torch.cat([mus[k, idx_start[k]:idx_end[k], :]
-                           for k in range(num_components)])
-        logvar_sel = torch.cat(
-            [logvars[k, idx_start[k]:idx_end[k], :] for k in range(num_components)])
-
-        return mu_sel, logvar_sel
-
-
-class ProductOfExperts(nn.Module):
-    """Return parameters for product of independent experts.
-
-    Args:
-    mu (torch.Tensor): Mean of experts distribution. M x D for M experts
-    logvar (torch.Tensor): Log of variance of experts distribution. M x D for M experts
-    """
-
-    def forward(self, mu, logvar):
-        var = torch.exp(logvar) + EPS
-        T = 1. / (var + EPS)
-        pd_mu = torch.sum(mu * T, dim=0) / torch.sum(T, dim=0)
-        pd_var = 1. / torch.sum(T, dim=0)
-        pd_logvar = torch.log(pd_var + EPS)
-        return pd_mu, pd_logvar
-
-
-class Default():
-    """Artificial distribution designed for data with unspecified distribution.
-    Used so that log_likelihood and _sample methods can be called by model class.
-    Args:
-        x (list): List of input data.
-    """
-
-    def __init__(
-        self,
-        **kwargs,
-    ):
-        self.x = kwargs['x']
-
-    def log_likelihood(self, x):
-        """calculates the mean squared error between input data and reconstruction.
-
-        Args:
-            x (torch.Tensor): data reconstruction.
-
-        Returns:
-            torch.Tensor: Negative mean squared error.
-        """
-        logits, x = broadcast_all(self.x, x)
-        return - (logits - x)**2
-
-    def rsample(self):
-        raise NotImplementedError
-
-    def kl_divergence(self):
-        raise NotImplementedError
-
-    def sparse_kl_divergence(self):
-        raise NotImplementedError
-
-    def _sample(self, training=False, return_mean=True):
-        return self.x
-
-
-class Normal(_Normal):
-    """Univariate normal distribution. Inherits from torch.distributions.Normal.
-
-    Args:
-        loc (int, torch.Tensor): Mean of distribution.
-        scale (int, torch.Tensor): Standard deviation of distribution.
-    """
-
-    def __init__(
-        self,
-        **kwargs,
-    ):
-        self.loc = kwargs['loc']
-        if 'logvar' in kwargs:
-            self.logvar = kwargs['logvar']
-            self.scale = kwargs['logvar'].mul(0.5).exp_()+EPS
-
-        elif 'scale' in kwargs:
-            self.scale = kwargs['scale']
-            if not isinstance(self.scale, torch.Tensor):
-                self.scale = torch.tensor(self.scale)
-            self.logvar = 2 * torch.log(self.scale)
-        super().__init__(loc=self.loc, scale=self.scale)
-
-    @property
-    def variance(self):
-        return self.scale.pow(2)
-
-    def kl_divergence(self, other):
-        logvar0 = self.logvar
-        mu0 = self.loc
-        logvar1 = other.logvar
-        mu1 = other.loc
-
-        return -0.5 * (1 - logvar0.exp()/logvar1.exp() - (mu0-mu1).pow(2)/logvar1.exp() + logvar0 - logvar1)
-
-    def sparse_kl_divergence(self):
-        """
-        Implementation from: https://github.com/senya-ashukha/variational-dropout-sparsifies-dnn/blob/master/KL%20approximation.ipynb
-
-        """
-        mu = self.loc
-        logvar = torch.log(self.variance)
-        log_alpha = compute_log_alpha(mu, logvar)
-        k1, k2, k3 = 0.63576, 1.8732, 1.48695
-        neg_KL = (
-            k1 * torch.sigmoid(k2 + k3 * log_alpha)
-            - 0.5 * torch.log1p(torch.exp(-log_alpha))
-            - k1
-        )
-        return -neg_KL
-
-    def log_likelihood(self, x):
-        return self.log_prob(x)
-
-    def _sample(self, *kwargs, training=False, return_mean=True):
-        if training:
-            return self.rsample(*kwargs)
-
-        if return_mean:
-            return self.loc
-        return self.sample()
-
 
 class MoPoEVAE(L.LightningModule):
     r"""
@@ -239,7 +45,6 @@ class MoPoEVAE(L.LightningModule):
         sequence_length,
         z_dim,
         frequence_L,
-        use_attention,
         aggregate_method,
         imgMean,
         imgStd,
@@ -267,13 +72,12 @@ class MoPoEVAE(L.LightningModule):
         else:
             self.ll_weighting = 1
         self.encoders = nn.ModuleList([
-            SignalVAE(
+            CSIVAE(
                 feature_input_dim=52,
                 time_input_dim=frequence_L*2,
-                use_attention=use_attention,
                 sequence_length=sequence_length, z_dim=z_dim, aggregation_method=aggregate_method
             ),
-            BetaVAE(
+            ImageVAE(
                 in_channels=3,
                 time_input_dim=frequence_L*2,
                 z_dim=z_dim
@@ -503,8 +307,8 @@ class MoPoEVAE(L.LightningModule):
     # FID update
     def update_metrics(self, batch):
         real = batch[1][1]
-        fake = self.decode(self.encode_subset(batch, [1]))[1][0][1]
-        
+        fake = self.decode(self.encode_subset(batch, [0]))[1][0][1]
+
         # reverse normalization
         real = real * self.imgStd.to(self.device) + self.imgMean.to(self.device)
         fake = fake * self.imgStd.to(self.device) + self.imgMean.to(self.device)
@@ -522,12 +326,9 @@ class MoPoEVAE(L.LightningModule):
         self.FID.update(fake, real=False)
 
     def log_image(self, batch, name):
-        reconstruction_from_signal = self.decode(
-            self.encode_subset(batch, [0]))[1][0][1]
-        reconstruction_from_image = self.decode(
-            self.encode_subset(batch, [1]))[1][0][1]
-        cat = torch.cat((batch[1][1], reconstruction_from_image,
-                        reconstruction_from_signal), dim=-1)
+        reconstruction_from_signal = self.decode(self.encode_subset(batch, [0]))[1][0][1]
+        reconstruction_from_image = self.decode(self.encode_subset(batch, [1]))[1][0][1]
+        cat = torch.cat((batch[1][1], reconstruction_from_image,reconstruction_from_signal), dim=-1)
         
         if self.logImage:
             self.logger.log_image(f'{name}', [wandb.Image(cat)], self.current_epoch)
@@ -539,7 +340,128 @@ class MoPoEVAE(L.LightningModule):
         return optimizer
 
 
-class BetaVAE(nn.Module):
+def compute_log_alpha(mu, logvar):
+    return (logvar - 2 * torch.log(torch.abs(mu) + 1e-8)).clamp(min=-8, max=8)
+
+class MixtureOfExperts(nn.Module):
+    """Return parameters for mixture of independent experts.
+    Implementation from: https://github.com/thomassutter/MoPoE
+
+    Args:
+    mus (torch.Tensor): Mean of experts distribution. M x D for M experts
+    logvars (torch.Tensor): Log of variance of experts distribution. M x D for M experts
+    """
+
+    def forward(self, mus, logvars):
+
+        num_components = mus.shape[0]
+        num_samples = mus.shape[1]
+        weights = (1/num_components) * \
+            torch.ones(num_components).to(mus[0].device)
+        idx_start = []
+        idx_end = []
+        for k in range(0, num_components):
+            if k == 0:
+                i_start = 0
+            else:
+                i_start = int(idx_end[k-1])
+            if k == num_components-1:
+                i_end = num_samples
+            else:
+                i_end = i_start + int(torch.floor(num_samples*weights[k]))
+            idx_start.append(i_start)
+            idx_end.append(i_end)
+        idx_end[-1] = num_samples
+
+        mu_sel = torch.cat([mus[k, idx_start[k]:idx_end[k], :]
+                           for k in range(num_components)])
+        logvar_sel = torch.cat(
+            [logvars[k, idx_start[k]:idx_end[k], :] for k in range(num_components)])
+
+        return mu_sel, logvar_sel
+
+class ProductOfExperts(nn.Module):
+    """Return parameters for product of independent experts.
+
+    Args:
+    mu (torch.Tensor): Mean of experts distribution. M x D for M experts
+    logvar (torch.Tensor): Log of variance of experts distribution. M x D for M experts
+    """
+
+    def forward(self, mu, logvar):
+        var = torch.exp(logvar) + EPS
+        T = 1. / (var + EPS)
+        pd_mu = torch.sum(mu * T, dim=0) / torch.sum(T, dim=0)
+        pd_var = 1. / torch.sum(T, dim=0)
+        pd_logvar = torch.log(pd_var + EPS)
+        return pd_mu, pd_logvar
+
+class Normal(_Normal):
+    """Univariate normal distribution. Inherits from torch.distributions.Normal.
+
+    Args:
+        loc (int, torch.Tensor): Mean of distribution.
+        scale (int, torch.Tensor): Standard deviation of distribution.
+    """
+
+    def __init__(
+        self,
+        **kwargs,
+    ):
+        self.loc = kwargs['loc']
+        if 'logvar' in kwargs:
+            self.logvar = kwargs['logvar']
+            self.scale = kwargs['logvar'].mul(0.5).exp_()+EPS
+
+        elif 'scale' in kwargs:
+            self.scale = kwargs['scale']
+            if not isinstance(self.scale, torch.Tensor):
+                self.scale = torch.tensor(self.scale)
+            self.logvar = 2 * torch.log(self.scale)
+        super().__init__(loc=self.loc, scale=self.scale)
+
+    @property
+    def variance(self):
+        return self.scale.pow(2)
+
+    def kl_divergence(self, other):
+        logvar0 = self.logvar
+        mu0 = self.loc
+        logvar1 = other.logvar
+        mu1 = other.loc
+
+        return -0.5 * (1 - logvar0.exp()/logvar1.exp() - (mu0-mu1).pow(2)/logvar1.exp() + logvar0 - logvar1)
+
+    def sparse_kl_divergence(self):
+        """
+        Implementation from: https://github.com/senya-ashukha/variational-dropout-sparsifies-dnn/blob/master/KL%20approximation.ipynb
+
+        """
+        mu = self.loc
+        logvar = torch.log(self.variance)
+        log_alpha = compute_log_alpha(mu, logvar)
+        k1, k2, k3 = 0.63576, 1.8732, 1.48695
+        neg_KL = (
+            k1 * torch.sigmoid(k2 + k3 * log_alpha)
+            - 0.5 * torch.log1p(torch.exp(-log_alpha))
+            - k1
+        )
+        return -neg_KL
+
+    def log_likelihood(self, x):
+        return self.log_prob(x)
+
+    def _sample(self, *kwargs, training=False, return_mean=True):
+        if training:
+            return self.rsample(*kwargs)
+
+        if return_mean:
+            return self.loc
+        return self.sample()
+
+
+# Image Variational Autoencoder
+class ImageVAE(nn.Module):
 
     def __init__(self,
                  in_channels: int,
@@ -548,7 +470,7 @@ class BetaVAE(nn.Module):
                  hidden_dims: [int] = None,
                  beta: int = 4,
                  aggregation: str = 'concat') -> None:
-        super(BetaVAE, self).__init__()
+        super(ImageVAE, self).__init__()
 
         self.aggregation = aggregation
 
@@ -658,38 +580,15 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.layers(x)
 
-class PositionalEncoding(nn.Module):
-
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, 1, d_model)
-        pe[:, 0, 0::2] = torch.sin(position * div_term)
-        pe[:, 0, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('pe', pe)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Arguments:
-            x: Tensor, shape ``[seq_len, batch_size, embedding_dim]``
-        """
-        x = x.permute(1,0,2)
-        x = x + self.pe[:x.size(0)]
-        x = x.permute(1,0,2)
-        return self.dropout(x)
-
-class SignalVAE(nn.Module):
+# CSI Variational Autoencoder
+class CSIVAE(nn.Module):
     def __init__(self,
                  feature_input_dim,
                  time_input_dim,
                  sequence_length,
                  z_dim,
-                 use_attention,
                  aggregation_method: str='concat'):
-        super(SignalVAE, self).__init__()
+        super(CSIVAE, self).__init__()
 
         self.aggregate_method = aggregation_method
 
@@ -706,14 +605,6 @@ class SignalVAE(nn.Module):
             hidden_dim=time_input_dim//8,
             output_dim=time_input_dim//16
         )
-
-        self.use_attention = use_attention
-
-        if self.use_attention:
-            self.attention = nn.MultiheadAttention(
-                embed_dim=output, num_heads=8, batch_first=True
-            )
-            self.pe = PositionalEncoding(output, max_len=sequence_length)
         
         if self.aggregate_method=='concat':
             self.latent_encoder = MLP(input_dim=output*sequence_length+time_input_dim//16,hidden_dim=z_dim*2,output_dim=z_dim*2)
@@ -750,14 +641,7 @@ class SignalVAE(nn.Module):
         feature = self.feature_encoder(feature)
 
         time = self.time_encoder(time.reshape(time.shape[0],1,1,-1))
-        if self.use_attention:
-            # Reshape for Multi-Head Attention
-            feature =  feature.squeeze()
-
-            # Apply Multi-Head Attention
-            feature = self.pe(feature)
-            feature, _ = self.attention(feature, feature, feature)
-
+ 
         # feature aggregation
         if self.aggregate_method=='concat':
             feature = feature.reshape(feature.shape[0], -1)
@@ -788,3 +672,26 @@ class SignalVAE(nn.Module):
         result = self.latent_decoder(z)
         ll = Normal(loc=result, scale=torch.exp(0.5 * self.logvar_out))
         return ll, result
+    
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Arguments:
+            x: Tensor, shape ``[seq_len, batch_size, embedding_dim]``
+        """
+        x = x.permute(1,0,2)
+        x = x + self.pe[:x.size(0)]
+        x = x.permute(1,0,2)
+        return self.dropout(x)

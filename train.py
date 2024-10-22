@@ -60,7 +60,7 @@ def train(opt):
     if not opt.test:
         dataloader_train = DataLoader(ConcatDataset([datasetTrainJ3]), batch_size=opt.bs, shuffle=True, num_workers=opt.workers, drop_last=True)
         dataloader_val = DataLoader(ConcatDataset([datasetValJ3]), batch_size=opt.bs*8, shuffle=False, num_workers=opt.workers, drop_last=True)
-        model = MoPoEVAE(weight_ll=True, lr=opt.lr,sequence_length=opt.ws, z_dim=opt.zdim, frequence_L= frequence_L,aggregate_method=opt.am, use_attention=opt.attention,imgMean=j3_train.imgMean,imgStd=j3_train.imgStd,log=opt.log)
+        model = MoPoEVAE(weight_ll=True, lr=opt.lr,sequence_length=opt.ws, z_dim=opt.zdim, frequence_L= frequence_L,aggregate_method=opt.am,imgMean=j3_train.imgMean,imgStd=j3_train.imgStd,log=opt.log)
 
         # copy python files to run folder
         if not os.path.exists("runs/"+opt.name):
@@ -80,7 +80,7 @@ def train(opt):
     else:
         print("Reconstructing...")
         dataloader_test = DataLoader(datasetTestJ3, batch_size=opt.bs*8,shuffle=False, num_workers=opt.workers, drop_last=True)
-        model = MoPoEVAE.load_from_checkpoint(f'runs/{opt.name}/bestLoss.ckpt', weight_ll=True, lr=opt.lr, sequence_length=opt.ws, z_dim=opt.zdim,frequence_L= frequence_L,aggregate_method=opt.am, use_attention=opt.attention,map_location=device,imgMean=j3_train.imgMean,imgStd=j3_train.imgStd,log=opt.log)
+        model = MoPoEVAE.load_from_checkpoint(f'runs/{opt.name}/bestLoss.ckpt', weight_ll=True, lr=opt.lr, sequence_length=opt.ws, z_dim=opt.zdim,frequence_L= frequence_L,aggregate_method=opt.am, map_location=device,imgMean=j3_train.imgMean,imgStd=j3_train.imgStd,log=opt.log)
         model.to(device)
         model.eval()
 
@@ -198,7 +198,6 @@ if __name__ == "__main__":
     parser.add_argument('--augment', default='', type=str, metavar='PATH', help='path to augmentation parameters (default: none)')
     parser.add_argument('--test', action='store_true',help='perform reconstruction and evaluation only')
     parser.add_argument('--am', default='concat',choices=['uniform', 'gaussian','concat'], type=str,help='type of aggregation method')
-    parser.add_argument('--attention', action='store_true', help='use attention mechanism')
     parser.add_argument('--random', action='store_true', help='use random image sampling within CSI window')
     parser.add_argument('--tenc', action='store_true',help='use temporal encoding')
     parser.add_argument('--det', action='store_true', help='enable deterministic behavior')
