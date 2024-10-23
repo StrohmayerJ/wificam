@@ -54,16 +54,13 @@ class MoPoEVAE(L.LightningModule):
         self.weight_ll = weight_ll
         self.learning_rate = lr
         self.random_index = 0
-        self.prior_mean = torch.nn.Parameter(
-            torch.zeros(z_dim), requires_grad=False)
-        self.prior_std = torch.nn.Parameter(
-            torch.ones(z_dim), requires_grad=False)
-        self.prior = Normal(loc=self.prior_mean, logvar=self.prior_std)
+        self.prior_mean = torch.nn.Parameter(torch.zeros(z_dim), requires_grad=False)
+        self.prior_logvar = torch.nn.Parameter(torch.zeros(z_dim), requires_grad=False)
+        self.prior = Normal(loc=self.prior_mean, logvar=self.prior_logvar)
         self.subsets = self.set_subsets()
         self.beta = 1
         self.FID = FrechetInceptionDistance().to(self.device)
         self.logImage = log
-        
         self.imgMean = torch.tensor(imgMean.reshape(1, 3, 1, 1)).to(self.device)
         self.imgStd = torch.tensor(imgStd.reshape(1, 3, 1, 1)).to(self.device)
 
@@ -106,13 +103,13 @@ class MoPoEVAE(L.LightningModule):
 
         mu_out = []
         logvar_out = []
-        # if self.training:
+
         qz_xs = []
         for subset in self.subsets:
             mu_s = mu[subset]
             logvar_s = logvar[subset]
             if len(subset) == 2:
-                mu_ = self.prior.mean
+                mu_ = self.prior.loc
                 mu_ = mu_.expand(mu[0].shape).to(mu[0].device)
                 logvar_ = torch.log(self.prior.variance).to(mu[0].device)
                 logvar_ = logvar_.expand(logvar[0].shape)
@@ -124,18 +121,14 @@ class MoPoEVAE(L.LightningModule):
             mu_s, logvar_s = ProductOfExperts()(mu_s, logvar_s)
             mu_out.append(mu_s)
             logvar_out.append(logvar_s)
-            qz_x = Normal(
-                loc=mu_s, logvar=logvar_s
-            )
+            qz_x = Normal(loc=mu_s, logvar=logvar_s)
             qz_xs.append(qz_x)
         mu_out = torch.stack(mu_out)
         logvar_out = torch.stack(logvar_out)
 
         moe_mu, moe_logvar = MixtureOfExperts()(mu_out, logvar_out)
 
-        qz_x = Normal(
-            loc=moe_mu, logvar=moe_logvar
-        )
+        qz_x = Normal(loc=moe_mu, logvar=moe_logvar)
         return [qz_xs, qz_x]
 
     def encode_subset(self, x, subset):
@@ -167,9 +160,7 @@ class MoPoEVAE(L.LightningModule):
         logvar = torch.stack(logvar)
 
         mu, logvar = ProductOfExperts()(mu, logvar)
-        qz_x = Normal(
-            loc=mu, logvar=logvar
-        )
+        qz_x = Normal(loc=mu, logvar=logvar)
         return [qz_x]
 
     def decode(self, qz_x):
@@ -185,8 +176,7 @@ class MoPoEVAE(L.LightningModule):
         px_zs = []
         x_hats = []
         for i in range(2):
-            px_z, x_hat = self.encoders[i].decode(qz_x[0]._sample(
-                training=self.training))
+            px_z, x_hat = self.encoders[i].decode(qz_x[0]._sample(training=self.training))
             px_zs.append(px_z)
             x_hats.append(x_hat)
         return [px_zs], [x_hats]
@@ -240,7 +230,6 @@ class MoPoEVAE(L.LightningModule):
         kl = 0
         for qz_x in qz_xs:
             kl += qz_x.kl_divergence(self.prior).mean(0).sum()
-
         return kl*weight
 
     def set_subsets(self):
@@ -267,8 +256,7 @@ class MoPoEVAE(L.LightningModule):
         """
         ll = 0
         i = 1
-        ll += px_zs[0][0][i].log_likelihood(self.encoders[i].aggregate_signal(x[i][1].permute(
-            0, 1, 3, 2)) if i == 0 else x[i][1]).mean(0).sum()*self.ll_weighting  
+        ll += px_zs[0][0][i].log_likelihood(self.encoders[i].aggregate_features(x[i][1].permute(0, 1, 3, 2)) if i == 0 else x[i][1]).mean(0).sum()*self.ll_weighting  
         return ll
 
     def __step(self, batch, batch_idx, stage):
@@ -326,14 +314,13 @@ class MoPoEVAE(L.LightningModule):
         self.FID.update(fake, real=False)
 
     def log_image(self, batch, name):
-        reconstruction_from_signal = self.decode(self.encode_subset(batch, [0]))[1][0][1]
+        reconstruction_from_csi = self.decode(self.encode_subset(batch, [0]))[1][0][1]
         reconstruction_from_image = self.decode(self.encode_subset(batch, [1]))[1][0][1]
-        cat = torch.cat((batch[1][1], reconstruction_from_image,reconstruction_from_signal), dim=-1)
+        cat = torch.cat((batch[1][1], reconstruction_from_image,reconstruction_from_csi), dim=-1)
 
         if self.logImage:
             self.logger.log_image(f'{name}', [wandb.Image(cat)], self.current_epoch)
   
-    
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(filter(
             lambda p: p.requires_grad, self.parameters()), lr=self.learning_rate, amsgrad=True)
@@ -373,10 +360,8 @@ class MixtureOfExperts(nn.Module):
             idx_end.append(i_end)
         idx_end[-1] = num_samples
 
-        mu_sel = torch.cat([mus[k, idx_start[k]:idx_end[k], :]
-                           for k in range(num_components)])
-        logvar_sel = torch.cat(
-            [logvars[k, idx_start[k]:idx_end[k], :] for k in range(num_components)])
+        mu_sel = torch.cat([mus[k, idx_start[k]:idx_end[k], :] for k in range(num_components)])
+        logvar_sel = torch.cat([logvars[k, idx_start[k]:idx_end[k], :] for k in range(num_components)])
 
         return mu_sel, logvar_sel
 
@@ -432,6 +417,7 @@ class Normal(_Normal):
 
         return -0.5 * (1 - logvar0.exp()/logvar1.exp() - (mu0-mu1).pow(2)/logvar1.exp() + logvar0 - logvar1)
 
+    
     def sparse_kl_divergence(self):
         """
         Implementation from: https://github.com/senya-ashukha/variational-dropout-sparsifies-dnn/blob/master/KL%20approximation.ipynb
@@ -447,6 +433,7 @@ class Normal(_Normal):
             - k1
         )
         return -neg_KL
+    
 
     def log_likelihood(self, x):
         return self.log_prob(x)
@@ -458,6 +445,7 @@ class Normal(_Normal):
         if return_mean:
             return self.loc
         return self.sample()
+
 
 
 # Image Variational Autoencoder
@@ -485,24 +473,15 @@ class ImageVAE(nn.Module):
         for h_dim in hidden_dims:
             modules.append(
                 nn.Sequential(
-                    nn.Conv2d(in_channels, out_channels=h_dim,
-                              kernel_size=3, stride=2, padding=1),
+                    nn.Conv2d(in_channels, out_channels=h_dim,kernel_size=3, stride=2, padding=1),
                     nn.BatchNorm2d(h_dim),
                     nn.LeakyReLU()),
             )
             in_channels = h_dim
 
         self.image_encoder = nn.Sequential(*modules)
-
-        self.time_encoder = MLP(
-            input_dim=time_input_dim*2,
-            hidden_dim=time_input_dim//2,
-            output_dim=time_input_dim//4
-        )
-        self.latent_encoder = nn.Linear(
-            hidden_dims[-1]*4+time_input_dim//4,
-            z_dim*2
-        )
+        self.time_encoder = MLP(input_dim=time_input_dim*2,hidden_dim=time_input_dim//2,output_dim=time_input_dim//4)
+        self.latent_encoder = nn.Linear(hidden_dims[-1]*4+time_input_dim//4,z_dim*2)
         
         # Build Decoder
         modules = []
@@ -512,8 +491,7 @@ class ImageVAE(nn.Module):
         for i in range(len(hidden_dims) - 1):
             modules.append(
                 nn.Sequential(
-                    nn.ConvTranspose2d(
-                        hidden_dims[i], hidden_dims[i + 1], kernel_size=3, stride=2, padding=1, output_padding=1),
+                    nn.ConvTranspose2d(hidden_dims[i], hidden_dims[i + 1], kernel_size=3, stride=2, padding=1, output_padding=1),
                     nn.BatchNorm2d(hidden_dims[i + 1]),
                     nn.LeakyReLU())
             )
@@ -521,15 +499,12 @@ class ImageVAE(nn.Module):
         self.decoder = nn.Sequential(*modules)
 
         self.final_layer = nn.Sequential(
-            nn.ConvTranspose2d(
-                hidden_dims[-1], hidden_dims[-1], kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(hidden_dims[-1], hidden_dims[-1], kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.BatchNorm2d(hidden_dims[-1]),
             nn.LeakyReLU(),
-            nn.Conv2d(hidden_dims[-1], out_channels=3,
-                      kernel_size=3, padding=1),
+            nn.Conv2d(hidden_dims[-1], out_channels=3,kernel_size=3, padding=1),
             nn.Tanh())
-        tmp_noise_par = torch.empty(
-            (1, 3, 128, 128)).fill_(-3) 
+        tmp_noise_par = torch.empty((1, 3, 128, 128)).fill_(-3) 
         self.logvar_out = nn.Parameter(data=tmp_noise_par, requires_grad=True)
 
     def encode(self, x):
@@ -545,8 +520,12 @@ class ImageVAE(nn.Module):
         image = torch.flatten(image, start_dim=1)
         time = time[:, 0, 0, :]
         x = torch.concat([time, image], dim=1)
-        mu, log_var = self.latent_encoder(x).chunk(2, dim=-1)
-        return mu, log_var
+        mu, logvar = self.latent_encoder(x).chunk(2, dim=-1)
+
+        # clamp logvar to -10 and 10 to avoid numerical instability
+        logvar = torch.clamp(logvar, -10, 10)
+
+        return mu, logvar
 
     def decode(self, z):
         result = self.decoder_input(z)
@@ -594,17 +573,9 @@ class CSIVAE(nn.Module):
 
         output = 64
 
-        self.feature_encoder = MLP(
-            input_dim=feature_input_dim,
-            hidden_dim=feature_input_dim//2,
-            output_dim=output
-        )
+        self.feature_encoder = MLP(input_dim=feature_input_dim,hidden_dim=feature_input_dim//2,output_dim=output)
 
-        self.time_encoder = MLP(
-            input_dim=time_input_dim*2,
-            hidden_dim=time_input_dim//8,
-            output_dim=time_input_dim//16
-        )
+        self.time_encoder = MLP(input_dim=time_input_dim*2,hidden_dim=time_input_dim//8,output_dim=time_input_dim//16)
         
         if self.aggregate_method=='concat':
             self.latent_encoder = MLP(input_dim=output*sequence_length+time_input_dim//16,hidden_dim=z_dim*2,output_dim=z_dim*2)
@@ -624,13 +595,11 @@ class CSIVAE(nn.Module):
             self.sum_weight = self.weighting.sum()
 
         self.latent_decoder = MLP(z_dim, z_dim*2, feature_input_dim)
-
         tmp_noise_par = torch.empty((1, feature_input_dim)).fill_(-3)
-
         self.logvar_out = nn.Parameter(data=tmp_noise_par, requires_grad=True)
 
-    def aggregate_signal(self, signal):
-        return ((signal*self.weighting).sum(dim=2)/self.sum_weight).squeeze()
+    def aggregate_features(self, features):
+        return ((features*self.weighting).sum(dim=2)/self.sum_weight).squeeze()
 
     def encode(self, x):
 
@@ -646,15 +615,18 @@ class CSIVAE(nn.Module):
         if self.aggregate_method=='concat':
             feature = feature.reshape(feature.shape[0], -1)
         elif self.aggregate_method=='gaussian':
-            feature = self.aggregate_signal(feature)
+            feature = self.aggregate_features(feature)
         elif self.aggregate_method=='uniform':
-            feature = self.aggregate_signal(feature)
+            feature = self.aggregate_features(feature)
         
         # concatenate features and temporal encoding
         time = time.view(time.shape[0], -1)
         x = torch.concat([time, feature], dim=1)
         
         mu, logvar = self.latent_encoder(x).chunk(2, dim=-1)
+
+        # clamp logvar to -10 and 10 to avoid numerical instability
+        logvar = torch.clamp(logvar, -10, 10)
 
         return mu, logvar
 
