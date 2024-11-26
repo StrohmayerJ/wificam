@@ -1,0 +1,1 @@
+Put the wificam dataset from https://zenodo.org/uploads/11554280 in this directoy.

@@ -1,0 +1,8 @@
+amplitudeProbability: 0.5 # probability of applying amplitude augmentation
+amplitudeRange: 0.2 # range of amplitude augmentation in positive and negative direction
+pixelWiseDropoutProbability: 0.5 # probability of applying pixel-wise dropout
+pixelWiseDropout: 0.1 # dropout probability of pixel
+pixelWiseDropoutZeroPixels: 0.0 # probability of zero pixels
+columnWiseDropoutProbability: 0.5 # probability of applying column-wise dropout
+columnWiseDropout: 0.1 # dropout probability of column
+columnWiseDropoutZeroPixels: 0.0 # probability of zero pixels
