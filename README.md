@@ -14,7 +14,7 @@ https://github.com/user-attachments/assets/3572af8e-8958-48f3-b844-8c3c61b54e65
 **Strohmayer J., Sterzinger R., Stippel C. and Kampel M.**, “Through-Wall Imaging Based On WiFi Channel State Information,” 2024 IEEE International Conference on Image Processing (ICIP), Abu Dhabi, United Arab Emirates, 2024, pp. 4000-4006, doi: https://doi.org/10.1109/ICIP51287.2024.10647775.
 
 BibTeX:
-```
+```BibTeX
 @INPROCEEDINGS{Strohmayer10647775,
   author={Strohmayer, Julian and Sterzinger, Rafael and Stippel, Christian and Kampel, Martin},
   booktitle={2024 IEEE International Conference on Image Processing (ICIP)}, 
