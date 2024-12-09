@@ -51,7 +51,7 @@ Logging is disabled by default. You can enable wandb logging by updating your cr
 ```
 python3 train.py --name mopoevae_ct --data data/wificam/ --epochs 50 --am concat --tenc --device 0 --test
 ```
-During Testing, ground truth and generated images will be logged in the *runs/mopoevae_ct/out/* directory which can be turned into a video via ffmpeg:
+During Testing, ground truth and generated images will be logged in the `runs/mopoevae_ct/out/` directory which can be turned into a video via ffmpeg:
 ```
 ffmpeg -framerate 100 -i %d.png -c:v libx264 -pix_fmt yuv420p demo.mp4
 ```
