@@ -167,9 +167,9 @@ class WificamDataset(Dataset):
         image = transforms.Normalize(self.imgMean, self.imgStd)(image)
 
         # temporal encoding
-        spectrogram_tenc = np.array([index if not self.temporal_encoding else 0])
+        spectrogram_tenc = np.array([index if self.temporal_encoding else 0])
         spectrogram_tenc = torch.tensor(encode_time(spectrogram_tenc,self.L,self.windowSize)).unsqueeze(0).float()
-        image_tenc = np.array([image_index if not self.temporal_encoding else 0])
+        image_tenc = np.array([image_index if self.temporal_encoding else 0])
         image_tenc = torch.tensor(encode_time(image_tenc,self.L,self.windowSize)).unsqueeze(0).float()
         tenc = torch.cat((spectrogram_tenc, image_tenc), dim=2)
         return (tenc, spectrogram), (tenc, image)
